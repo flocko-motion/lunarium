@@ -2,8 +2,9 @@ package main
 
 import (
 	"fmt"
-	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"time"
+
+	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -27,7 +28,12 @@ func (g *Game) Update() error {
 	// Capture keyboard input and create new letter sprites
 	for _, key := range ebiten.AppendInputChars(nil) {
 		mouseX, mouseY := ebiten.CursorPosition()
-		letters = append(letters, NewLetterSprite(string(key), float64(mouseX), float64(mouseY)))
+		// Convert to uppercase for display
+		upperKey := string(key)
+		if key >= 'a' && key <= 'z' {
+			upperKey = string(key - 32) // Convert lowercase to uppercase
+		}
+		letters = append(letters, NewLetterSprite(upperKey, float64(mouseX), float64(mouseY)))
 	}
 
 	// Update all letters and remove faded ones
@@ -80,6 +86,9 @@ func main() {
 	ebiten.SetCursorMode(ebiten.CursorModeHidden)
 	game := &Game{}
 	mousePointer = NewMousePointer()
+
+	BlockInputs()
+	defer UnblockInputs()
 
 	if err := ebiten.RunGame(game); err != nil {
 		fmt.Println(err)
