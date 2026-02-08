@@ -1,22 +1,47 @@
 package main
 
 import (
-	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/text"
-	"golang.org/x/image/font/basicfont"
+	_ "embed"
+
 	"image/color"
 	"math"
 	"math/rand"
 	"time"
+
+	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/text"
+	"golang.org/x/image/font"
+	"golang.org/x/image/font/opentype"
 )
 
+//go:embed assets/DejaVuSans-Bold.ttf
+var fontData []byte
+
+var letterFace font.Face
+
 const (
-	letterWidth  = 7
-	letterHeight = 20
+	letterFontSize = 24
+	letterHeight   = 30
 )
+
+func init() {
+	tt, err := opentype.Parse(fontData)
+	if err != nil {
+		panic(err)
+	}
+	letterFace, err = opentype.NewFace(tt, &opentype.FaceOptions{
+		Size:    letterFontSize,
+		DPI:     72,
+		Hinting: font.HintingFull,
+	})
+	if err != nil {
+		panic(err)
+	}
+}
 
 type LetterSprite struct {
 	img        *ebiten.Image // Pre-rendered letter image
+	imgW       float64       // Actual image width for centering
 	x, y, z    float64       // Position
 	vx, vy, vz float64       // Velocity
 	ax, ay, az float64       // Acceleration
@@ -24,21 +49,27 @@ type LetterSprite struct {
 	size       float64       // Size
 	alpha      float64       // Transparency (fading effect)
 	createdAt  time.Time     // Creation time
+	victory    bool          // Victory letter grows bigger and lasts longer
 }
 
 // NewLetterSprite pre-renders the text and returns a new LetterSprite.
-func NewLetterSprite(char string, x, y float64) *LetterSprite {
+func NewLetterSprite(char string, x, y float64, victory bool) *LetterSprite {
+
+	// Measure actual glyph width
+	bounds := font.MeasureString(letterFace, char)
+	glyphW := bounds.Ceil() + 4 // add small padding
 
 	// Create an image for the text
-	textImg := ebiten.NewImage(letterWidth, letterHeight)
+	textImg := ebiten.NewImage(glyphW, letterHeight)
 	textImg.Fill(color.RGBA{0, 0, 0, 0}) // Transparent background
 
 	// Draw the letter with the generated color
-	text.Draw(textImg, char, basicfont.Face7x13, 0, 10, int2color(int(char[0])))
+	text.Draw(textImg, char, letterFace, 2, letterFontSize, int2color(int(char[0])))
 
 	// random vx between -3 and 3
-	return &LetterSprite{
+	ls := &LetterSprite{
 		img:       textImg,
+		imgW:      float64(glyphW),
 		x:         x,
 		y:         y,
 		vx:        (rand.Float64() - 0.5) * 3,
@@ -48,19 +79,31 @@ func NewLetterSprite(char string, x, y float64) *LetterSprite {
 		scale:     1,
 		alpha:     1,
 		createdAt: time.Now(),
+		victory:   victory,
 	}
+	if victory {
+		ls.vy = 0.3
+		ls.ay = 0.03
+		ls.vx = (rand.Float64() - 0.5) * 1
+	}
+	return ls
 }
 
 // Update handles the letter's animation (growing & fading).
 func (l *LetterSprite) Update() bool {
 	elapsed := time.Since(l.createdAt).Seconds()
-	l.scale = (5 + elapsed*10) // Grow over time
+	if l.victory {
+		l.scale = 10 + elapsed*15 // Grow bigger
+		l.alpha = 1 - elapsed*0.3 // Fade out slower
+	} else {
+		l.scale = 5 + elapsed*10  // Grow over time
+		l.alpha = 1 - elapsed*0.8 // Fade out
+	}
 	l.x += l.vx
 	l.ax += 0.1
 
 	l.y += l.vy
 	l.vy += l.ay
-	l.alpha = 1 - elapsed*0.8 // Fade out
 
 	return l.alpha > 0 // Return false when fully faded (to remove it)
 }
@@ -69,7 +112,7 @@ func (l *LetterSprite) Update() bool {
 func (l *LetterSprite) Draw(screen *ebiten.Image) {
 	op := &ebiten.DrawImageOptions{}
 	op.GeoM.Scale(l.scale, l.scale)
-	op.GeoM.Translate(l.x-letterWidth*l.scale*0.5, l.y-letterHeight*l.scale*0.5)
+	op.GeoM.Translate(l.x-l.imgW*l.scale*0.5, l.y-letterHeight*l.scale*0.5)
 	op.ColorScale.ScaleAlpha(float32(l.alpha)) // Apply fading effect
 
 	screen.DrawImage(l.img, op)

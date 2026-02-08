@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
@@ -18,7 +17,6 @@ var (
 	escHeld                   bool
 	mousePointer              Sprite
 	challenge                 *ChallengeSprite
-	debugMode                 bool
 )
 
 type Game struct{}
@@ -31,18 +29,26 @@ type Sprite interface {
 func (g *Game) Update() error {
 	// Capture keyboard input and create new letter sprites
 	for _, key := range ebiten.AppendInputChars(nil) {
+		// Only allow letters A-Z and digits 0-9
+		isLetter := (key >= 'a' && key <= 'z') || (key >= 'A' && key <= 'Z')
+		isDigit := key >= '0' && key <= '9'
+		if !isLetter && !isDigit {
+			continue
+		}
+
+		// Check if the letter matches the current challenge (before creating sprite)
+		solved := challenge.CheckLetter(key)
+		if solved {
+			victories = append(victories, NewVictorySprite(challenge.Letter()))
+		}
+
 		mouseX, mouseY := ebiten.CursorPosition()
 		// Convert to uppercase for display
 		upperKey := string(key)
 		if key >= 'a' && key <= 'z' {
 			upperKey = string(key - 32) // Convert lowercase to uppercase
 		}
-		letters = append(letters, NewLetterSprite(upperKey, float64(mouseX), float64(mouseY)))
-
-		// Check if the letter matches the current challenge
-		if challenge.CheckLetter(key) {
-			victories = append(victories, NewVictorySprite())
-		}
+		letters = append(letters, NewLetterSprite(upperKey, float64(mouseX), float64(mouseY), solved))
 	}
 
 	// Update all letters and remove faded ones
@@ -72,9 +78,15 @@ func (g *Game) Update() error {
 func (g *Game) exitHandler() error {
 	if ebiten.IsKeyPressed(ebiten.KeyEscape) {
 		if !escHeld {
-			escPressStart = time.Now()
 			escHeld = true
-		} else if time.Since(escPressStart) > 3*time.Second {
+			escPressStart = time.Now()
+
+			// Single press enters fullscreen
+			if !ebiten.IsFullscreen() {
+				ebiten.SetFullscreen(true)
+				BlockInputs()
+			}
+		} else if ebiten.IsFullscreen() && time.Since(escPressStart) > 3*time.Second {
 			return fmt.Errorf("exit")
 		}
 	} else {
@@ -100,8 +112,12 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		l.Draw(screen)
 	}
 
-	// always show hint how to exit
-	ebitenutil.DebugPrint(screen, "Press ESC for 3 seconds to quit")
+	// Show hint based on current mode
+	if ebiten.IsFullscreen() {
+		ebitenutil.DebugPrint(screen, "Press ESC for 3 seconds to quit")
+	} else {
+		ebitenutil.DebugPrint(screen, "Press ESC for fullscreen")
+	}
 
 }
 
@@ -111,27 +127,15 @@ func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
 }
 
 func main() {
-	// Check for debug mode via environment variable
-	if os.Getenv("LUNARIUM_DEBUG") != "" {
-		debugMode = true
-	}
-
-	if debugMode {
-		ebiten.SetWindowSize(1024, 768)
-		ebiten.SetWindowTitle("Lunarium (debug)")
-	} else {
-		ebiten.SetFullscreen(true)
-	}
+	ebiten.SetWindowSize(1024, 768)
+	ebiten.SetWindowTitle("Lunarium")
 	ebiten.SetCursorMode(ebiten.CursorModeHidden)
 
 	game := &Game{}
 	mousePointer = NewMousePointer()
 	challenge = NewChallengeSprite("assets/abcimg")
 
-	if !debugMode {
-		BlockInputs()
-		defer UnblockInputs()
-	}
+	defer UnblockInputs()
 
 	if err := ebiten.RunGame(game); err != nil {
 		fmt.Println(err)

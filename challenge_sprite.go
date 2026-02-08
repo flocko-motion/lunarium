@@ -14,31 +14,37 @@ import (
 )
 
 const (
-	challengeMinWidth  = 150
-	challengeMaxWidth  = 400
-	challengeMinHeight = 150
-	challengeMaxHeight = 400
-	fadeDuration       = 0.5 // seconds for fade-out and fade-in
+	challengeMinWidth  = 200
+	challengeMaxWidth  = 500
+	challengeMinHeight = 200
+	challengeMaxHeight = 500
+	growDuration       = 2 // seconds to grow to 2x
+	fadeOutDuration    = 1 // seconds to fade out after growing
+	pauseDuration      = 1 // seconds pause between challenges
+	fadeInDuration     = 2 // seconds to fade in new challenge
 )
 
 type challengeState int
 
 const (
 	challengeIdle challengeState = iota
+	challengeGrow
 	challengeFadeOut
+	challengePause
 	challengeFadeIn
 )
 
 type ChallengeSprite struct {
-	img       *ebiten.Image
-	x, y      float64
-	width     float64
-	height    float64
-	files     []string
-	letter    rune // first letter of current challenge filename (uppercase)
-	state     challengeState
-	fadeStart time.Time
-	alpha     float64
+	img        *ebiten.Image
+	x, y       float64
+	width      float64
+	height     float64
+	files      []string
+	letter     rune // first letter of current challenge filename (uppercase)
+	state      challengeState
+	phaseStart time.Time
+	alpha      float64
+	scale      float64 // current draw scale (1.0 = normal)
 }
 
 func NewChallengeSprite(assetDir string) *ChallengeSprite {
@@ -51,6 +57,7 @@ func NewChallengeSprite(assetDir string) *ChallengeSprite {
 		files: matches,
 		state: challengeIdle,
 		alpha: 1,
+		scale: 1,
 	}
 	cs.loadRandomImage()
 	return cs
@@ -69,10 +76,11 @@ func (cs *ChallengeSprite) CheckLetter(key rune) bool {
 	return false
 }
 
-// startTransition begins the fade-out phase.
+// startTransition begins the grow phase.
 func (cs *ChallengeSprite) startTransition() {
-	cs.state = challengeFadeOut
-	cs.fadeStart = time.Now()
+	cs.state = challengeGrow
+	cs.scale = 1
+	cs.phaseStart = time.Now()
 }
 
 // NextChallenge starts a transition to a new challenge (fade out, then fade in).
@@ -142,37 +150,66 @@ func (cs *ChallengeSprite) loadRandomImage() {
 }
 
 func (cs *ChallengeSprite) Update() bool {
-	elapsed := time.Since(cs.fadeStart).Seconds()
+	elapsed := time.Since(cs.phaseStart).Seconds()
 
 	switch cs.state {
+	case challengeGrow:
+		// Grow from 1x to 2x
+		progress := elapsed / growDuration
+		if progress >= 1 {
+			progress = 1
+			cs.state = challengeFadeOut
+			cs.phaseStart = time.Now()
+		}
+		cs.scale = 1 + progress // 1.0 -> 2.0
+		cs.alpha = 1
 	case challengeFadeOut:
-		cs.alpha = 1 - elapsed/fadeDuration
-		if cs.alpha <= 0 {
-			cs.alpha = 0
+		// Fade out while at 2x scale
+		progress := elapsed / fadeOutDuration
+		if progress >= 1 {
+			progress = 1
+			cs.state = challengePause
+			cs.phaseStart = time.Now()
+		}
+		cs.alpha = 1 - progress
+		cs.scale = 2
+	case challengePause:
+		// Short pause with nothing visible
+		cs.alpha = 0
+		cs.scale = 1
+		if elapsed >= pauseDuration {
 			// Load next image and start fade-in
 			cs.loadRandomImage()
 			cs.state = challengeFadeIn
-			cs.fadeStart = time.Now()
+			cs.phaseStart = time.Now()
 		}
 	case challengeFadeIn:
-		cs.alpha = elapsed / fadeDuration
-		if cs.alpha >= 1 {
-			cs.alpha = 1
+		progress := elapsed / fadeInDuration
+		if progress >= 1 {
+			progress = 1
 			cs.state = challengeIdle
 		}
+		cs.alpha = progress
+		cs.scale = 1
 	case challengeIdle:
 		cs.alpha = 1
+		cs.scale = 1
 	}
 
 	return true
 }
 
 func (cs *ChallengeSprite) Draw(screen *ebiten.Image) {
-	if cs.img == nil {
+	if cs.img == nil || cs.alpha <= 0 {
 		return
 	}
 	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Translate(cs.x, cs.y)
+	// Scale around the center of the image
+	cx := cs.width / 2
+	cy := cs.height / 2
+	op.GeoM.Translate(-cx, -cy)
+	op.GeoM.Scale(cs.scale, cs.scale)
+	op.GeoM.Translate(cs.x+cx, cs.y+cy)
 	op.ColorScale.ScaleAlpha(float32(cs.alpha))
 	screen.DrawImage(cs.img, op)
 }
