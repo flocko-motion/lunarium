@@ -57,6 +57,7 @@ func (g *Game) Update() error {
 		solved := challenge.CheckLetter(key)
 		if solved {
 			victories = append(victories, NewVictorySprite(challenge.Letter()))
+			mousePointer.Spin()
 		}
 
 		mouseX, mouseY := ebiten.CursorPosition()

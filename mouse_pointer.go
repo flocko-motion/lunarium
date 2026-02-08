@@ -193,6 +193,12 @@ func (m *MousePointer) Draw(screen *ebiten.Image) {
 	screen.DrawImage(composed, op)
 }
 
+// Spin gives the cat a strong rotation impulse (enough for a full loop).
+func (m *MousePointer) Spin() {
+	m.angleVel += m.spaceDir * 0.8
+	m.spaceDir = -m.spaceDir
+}
+
 // BoundingRect returns the cat's axis-aligned bounding rectangle on screen as (x, y, w, h).
 func (m *MousePointer) BoundingRect() (float64, float64, float64, float64) {
 	cx := float64(m.x+m.offX) - float64(m.width)/2

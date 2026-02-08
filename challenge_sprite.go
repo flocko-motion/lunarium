@@ -150,9 +150,10 @@ func (cs *ChallengeSprite) loadRandomImage(banX, banY, banW, banH float64) {
 	finalW := srcW * scale
 	finalH := srcH * scale
 
-	// Random position ensuring the image stays fully within the screen
+	// Random position ensuring the image stays within the screen, with bottom margin for hint text
+	bottomMargin := finalH + 80 // reserve space for hint text area
 	maxX := float64(screenWidth) - finalW
-	maxY := float64(screenHeight) - finalH
+	maxY := float64(screenHeight) - bottomMargin
 	if maxX < 0 {
 		maxX = 0
 	}
