@@ -27,7 +27,7 @@ var (
 	victories                 []*VictorySprite
 	escPressStart             time.Time
 	escHeld                   bool
-	mousePointer              Sprite
+	mousePointer              *MousePointer
 	challenge                 *ChallengeSprite
 	state                     gameState
 )

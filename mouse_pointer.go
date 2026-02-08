@@ -193,6 +193,13 @@ func (m *MousePointer) Draw(screen *ebiten.Image) {
 	screen.DrawImage(composed, op)
 }
 
+// BoundingRect returns the cat's axis-aligned bounding rectangle on screen as (x, y, w, h).
+func (m *MousePointer) BoundingRect() (float64, float64, float64, float64) {
+	cx := float64(m.x+m.offX) - float64(m.width)/2
+	cy := float64(m.y+m.offY) - float64(m.height)/2
+	return cx, cy, float64(m.width), float64(m.height)
+}
+
 // drawEye draws an open or closed eye at the given center position on the target image.
 func (m *MousePointer) drawEye(target *ebiten.Image, cx, cy float64, closed bool) {
 	if closed {

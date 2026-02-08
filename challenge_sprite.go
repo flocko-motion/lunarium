@@ -2,6 +2,7 @@ package main
 
 import (
 	"image"
+	"image/color"
 	_ "image/png"
 	"math/rand"
 	"os"
@@ -11,6 +12,8 @@ import (
 	"unicode"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/text"
+	"golang.org/x/image/font"
 )
 
 const (
@@ -18,10 +21,10 @@ const (
 	challengeMaxWidth  = 500
 	challengeMinHeight = 200
 	challengeMaxHeight = 500
-	growDuration       = 2 // seconds to grow to 2x
-	fadeOutDuration    = 1 // seconds to fade out after growing
-	pauseDuration      = 1 // seconds pause between challenges
-	fadeInDuration     = 2 // seconds to fade in new challenge
+	growDuration       = 2   // seconds to grow to 2x
+	fadeOutDuration    = 1   // seconds to fade out after growing
+	pauseDuration      = 1   // seconds pause between challenges
+	fadeInDuration     = 0.5 // seconds to fade in new challenge
 )
 
 type challengeState int
@@ -40,7 +43,8 @@ type ChallengeSprite struct {
 	width      float64
 	height     float64
 	files      []string
-	letter     rune // first letter of current challenge filename (uppercase)
+	letter     rune   // solution letter: first letter of first word (uppercase)
+	name       string // display name: filename with _ as space, uppercase
 	state      challengeState
 	phaseStart time.Time
 	alpha      float64
@@ -54,6 +58,7 @@ func NewChallengeSprite(assetDir string, allowedLetters string) *ChallengeSprite
 	}
 
 	// Filter files by allowed letters (empty = all)
+	// Only the first letter of the filename (solution letter) must be in the allowed set
 	if allowedLetters != "" {
 		allowed := strings.ToUpper(allowedLetters)
 		var filtered []string
@@ -75,11 +80,11 @@ func NewChallengeSprite(assetDir string, allowedLetters string) *ChallengeSprite
 		alpha: 1,
 		scale: 1,
 	}
-	cs.loadRandomImage()
+	cs.loadRandomImage(0, 0, 0, 0)
 	return cs
 }
 
-// CheckLetter checks if the typed letter matches the challenge. Returns true on success.
+// CheckLetter checks if the typed letter matches the solution letter. Returns true on success.
 // During transitions, input is ignored.
 func (cs *ChallengeSprite) CheckLetter(key rune) bool {
 	if cs.state != challengeIdle {
@@ -105,13 +110,15 @@ func (cs *ChallengeSprite) NextChallenge() {
 }
 
 // loadRandomImage selects a random image and places it at a random position/size.
-func (cs *ChallengeSprite) loadRandomImage() {
+func (cs *ChallengeSprite) loadRandomImage(banX, banY, banW, banH float64) {
 	path := cs.files[rand.Intn(len(cs.files))]
 
-	// Extract first letter of filename (uppercase)
+	// Extract display name and solution letter (first letter of first word)
 	baseName := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
-	if len(baseName) > 0 {
-		cs.letter = unicode.ToUpper(rune(baseName[0]))
+	cs.name = strings.ToUpper(strings.ReplaceAll(baseName, "_", " "))
+	words := strings.Fields(cs.name)
+	if len(words) > 0 && len(words[0]) > 0 {
+		cs.letter = unicode.ToUpper(rune(words[0][0]))
 	}
 
 	f, err := os.Open(path)
@@ -152,10 +159,16 @@ func (cs *ChallengeSprite) loadRandomImage() {
 	if maxY < 0 {
 		maxY = 0
 	}
-	cs.x = rand.Float64() * maxX
-	cs.y = rand.Float64() * maxY
+	// Try to find a position that doesn't overlap the ban zone (cat)
 	cs.width = finalW
 	cs.height = finalH
+	for i := 0; i < 50; i++ {
+		cs.x = rand.Float64() * maxX
+		cs.y = rand.Float64() * maxY
+		if banW <= 0 || banH <= 0 || !rectsOverlap(cs.x, cs.y, finalW, finalH, banX, banY, banW, banH) {
+			break
+		}
+	}
 
 	// Render scaled image
 	srcImg := ebiten.NewImageFromImage(imgData)
@@ -194,8 +207,9 @@ func (cs *ChallengeSprite) Update() bool {
 		cs.alpha = 0
 		cs.scale = 1
 		if elapsed >= pauseDuration {
-			// Load next image and start fade-in
-			cs.loadRandomImage()
+			// Load next image and start fade-in, avoiding the cat
+			cx, cy, cw, ch := mousePointer.BoundingRect()
+			cs.loadRandomImage(cx, cy, cw, ch)
 			cs.state = challengeFadeIn
 			cs.phaseStart = time.Now()
 		}
@@ -228,9 +242,48 @@ func (cs *ChallengeSprite) Draw(screen *ebiten.Image) {
 	op.GeoM.Translate(cs.x+cx, cs.y+cy)
 	op.ColorScale.ScaleAlpha(float32(cs.alpha))
 	screen.DrawImage(cs.img, op)
+
+	// Draw hint text at bottom of screen
+	cs.drawHint(screen)
 }
 
-// Letter returns the current challenge letter (uppercase).
+func (cs *ChallengeSprite) drawHint(screen *ebiten.Image) {
+	if cs.state != challengeIdle || len(cs.name) == 0 {
+		return
+	}
+	initMenuFace()
+
+	red := color.RGBA{255, 60, 60, 255}
+	white := color.RGBA{255, 255, 255, 255}
+
+	// Measure total width for centering
+	totalW := font.MeasureString(menuFace, cs.name).Ceil()
+	startX := screenWidth/2 - totalW/2
+	y := screenHeight - 30
+
+	// Draw each rune: first letter of a word in red only if it's a solution letter
+	xPos := startX
+	newWord := true
+	for _, r := range cs.name {
+		ch := string(r)
+		c := white
+		if r == ' ' {
+			newWord = true
+		} else if newWord && unicode.IsLetter(r) {
+			// Color red if this word starts with the solution letter
+			if unicode.ToUpper(r) == cs.letter {
+				c = red
+			}
+			newWord = false
+		} else {
+			newWord = false
+		}
+		text.Draw(screen, ch, menuFace, xPos, y, c)
+		xPos += font.MeasureString(menuFace, ch).Ceil()
+	}
+}
+
+// Letter returns the solution letter (uppercase).
 func (cs *ChallengeSprite) Letter() rune {
 	return cs.letter
 }
