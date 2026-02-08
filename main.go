@@ -2,12 +2,24 @@ package main
 
 import (
 	"fmt"
+	"image/color"
 	"time"
 
-	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
-
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
+	"github.com/hajimehoshi/ebiten/v2/text"
+	"golang.org/x/image/font"
+	"golang.org/x/image/font/opentype"
 )
+
+type gameState int
+
+const (
+	stateMenu gameState = iota
+	statePlaying
+)
+
+const easyLetters = "ABEFHIKLMNOPRSTUVZ"
 
 var (
 	screenWidth, screenHeight int
@@ -17,6 +29,7 @@ var (
 	escHeld                   bool
 	mousePointer              Sprite
 	challenge                 *ChallengeSprite
+	state                     gameState
 )
 
 type Game struct{}
@@ -27,6 +40,10 @@ type Sprite interface {
 }
 
 func (g *Game) Update() error {
+	if state == stateMenu {
+		return g.updateMenu()
+	}
+
 	// Capture keyboard input and create new letter sprites
 	for _, key := range ebiten.AppendInputChars(nil) {
 		// Only allow letters A-Z and digits 0-9
@@ -96,6 +113,11 @@ func (g *Game) exitHandler() error {
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
+	if state == stateMenu {
+		g.drawMenu(screen)
+		return
+	}
+
 	// BG layer: challenge image
 	challenge.Draw(screen)
 
@@ -126,6 +148,58 @@ func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
 	return screenWidth, screenHeight
 }
 
+func (g *Game) updateMenu() error {
+	for _, key := range ebiten.AppendInputChars(nil) {
+		switch key {
+		case '1':
+			challenge = NewChallengeSprite("assets/abcimg", easyLetters)
+			state = statePlaying
+		case '2':
+			challenge = NewChallengeSprite("assets/abcimg", "")
+			state = statePlaying
+		}
+	}
+	return nil
+}
+
+var menuFace font.Face
+
+func initMenuFace() {
+	if menuFace != nil {
+		return
+	}
+	tt, err := opentype.Parse(fontData)
+	if err != nil {
+		panic(err)
+	}
+	menuFace, err = opentype.NewFace(tt, &opentype.FaceOptions{
+		Size:    48,
+		DPI:     72,
+		Hinting: font.HintingFull,
+	})
+	if err != nil {
+		panic(err)
+	}
+}
+
+func (g *Game) drawMenu(screen *ebiten.Image) {
+	initMenuFace()
+	white := color.RGBA{255, 255, 255, 255}
+	gray := color.RGBA{200, 200, 200, 255}
+
+	title := "LUNARIUM"
+	titleW := font.MeasureString(menuFace, title).Ceil()
+	text.Draw(screen, title, menuFace, screenWidth/2-titleW/2, screenHeight/3, white)
+
+	opt1 := "Press 1: Easy"
+	opt1W := font.MeasureString(menuFace, opt1).Ceil()
+	text.Draw(screen, opt1, menuFace, screenWidth/2-opt1W/2, screenHeight/2, gray)
+
+	opt2 := "Press 2: All letters"
+	opt2W := font.MeasureString(menuFace, opt2).Ceil()
+	text.Draw(screen, opt2, menuFace, screenWidth/2-opt2W/2, screenHeight/2+60, gray)
+}
+
 func main() {
 	ebiten.SetWindowSize(1024, 768)
 	ebiten.SetWindowTitle("Lunarium")
@@ -133,7 +207,7 @@ func main() {
 
 	game := &Game{}
 	mousePointer = NewMousePointer()
-	challenge = NewChallengeSprite("assets/abcimg")
+	state = stateMenu
 
 	defer UnblockInputs()
 

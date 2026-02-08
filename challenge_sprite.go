@@ -47,10 +47,26 @@ type ChallengeSprite struct {
 	scale      float64 // current draw scale (1.0 = normal)
 }
 
-func NewChallengeSprite(assetDir string) *ChallengeSprite {
+func NewChallengeSprite(assetDir string, allowedLetters string) *ChallengeSprite {
 	matches, err := filepath.Glob(filepath.Join(assetDir, "*.png"))
 	if err != nil || len(matches) == 0 {
 		panic("no challenge images found in " + assetDir)
+	}
+
+	// Filter files by allowed letters (empty = all)
+	if allowedLetters != "" {
+		allowed := strings.ToUpper(allowedLetters)
+		var filtered []string
+		for _, path := range matches {
+			baseName := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+			if len(baseName) > 0 && strings.ContainsRune(allowed, unicode.ToUpper(rune(baseName[0]))) {
+				filtered = append(filtered, path)
+			}
+		}
+		if len(filtered) == 0 {
+			panic("no challenge images match allowed letters: " + allowedLetters)
+		}
+		matches = filtered
 	}
 
 	cs := &ChallengeSprite{
