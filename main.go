@@ -19,7 +19,9 @@ const (
 	statePlaying
 )
 
-const easyLetters = "ABEFHIKLMNOPRSTUVZ"
+const easyLetters = "ABDEFHIKLMNOPRSTUVZ"
+
+//const easyLetters = "ABD"
 
 var (
 	screenWidth, screenHeight int
@@ -102,7 +104,6 @@ func (g *Game) exitHandler() error {
 			// Single press enters fullscreen
 			if !ebiten.IsFullscreen() {
 				ebiten.SetFullscreen(true)
-				BlockInputs()
 			}
 		} else if ebiten.IsFullscreen() && time.Since(escPressStart) > 3*time.Second {
 			return fmt.Errorf("exit")
@@ -209,8 +210,6 @@ func main() {
 	game := &Game{}
 	mousePointer = NewMousePointer()
 	state = stateMenu
-
-	defer UnblockInputs()
 
 	if err := ebiten.RunGame(game); err != nil {
 		fmt.Println(err)

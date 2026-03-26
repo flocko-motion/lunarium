@@ -42,9 +42,11 @@ type ChallengeSprite struct {
 	x, y       float64
 	width      float64
 	height     float64
-	files      []string
-	letter     rune   // solution letter: first letter of first word (uppercase)
-	name       string // display name: filename with _ as space, uppercase
+	files      []string // master list
+	queue      []string // shuffled order for current cycle
+	queueIdx   int      // next index in queue
+	letter     rune     // solution letter: first letter of first word (uppercase)
+	name       string   // display name: filename with _ as space, uppercase
 	state      challengeState
 	phaseStart time.Time
 	alpha      float64
@@ -80,7 +82,8 @@ func NewChallengeSprite(assetDir string, allowedLetters string) *ChallengeSprite
 		alpha: 1,
 		scale: 1,
 	}
-	cs.loadRandomImage(0, 0, 0, 0)
+	cs.reshuffle()
+	cs.loadNextImage(0, 0, 0, 0)
 	return cs
 }
 
@@ -109,9 +112,23 @@ func (cs *ChallengeSprite) NextChallenge() {
 	cs.startTransition()
 }
 
-// loadRandomImage selects a random image and places it at a random position/size.
-func (cs *ChallengeSprite) loadRandomImage(banX, banY, banW, banH float64) {
-	path := cs.files[rand.Intn(len(cs.files))]
+// reshuffle creates a new shuffled queue from the master file list.
+func (cs *ChallengeSprite) reshuffle() {
+	cs.queue = make([]string, len(cs.files))
+	copy(cs.queue, cs.files)
+	rand.Shuffle(len(cs.queue), func(i, j int) {
+		cs.queue[i], cs.queue[j] = cs.queue[j], cs.queue[i]
+	})
+	cs.queueIdx = 0
+}
+
+// loadNextImage picks the next image from the shuffled queue and places it at a random position/size.
+func (cs *ChallengeSprite) loadNextImage(banX, banY, banW, banH float64) {
+	if cs.queueIdx >= len(cs.queue) {
+		cs.reshuffle()
+	}
+	path := cs.queue[cs.queueIdx]
+	cs.queueIdx++
 
 	// Extract display name and solution letter (first letter of first word)
 	baseName := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
@@ -210,7 +227,7 @@ func (cs *ChallengeSprite) Update() bool {
 		if elapsed >= pauseDuration {
 			// Load next image and start fade-in, avoiding the cat
 			cx, cy, cw, ch := mousePointer.BoundingRect()
-			cs.loadRandomImage(cx, cy, cw, ch)
+			cs.loadNextImage(cx, cy, cw, ch)
 			cs.state = challengeFadeIn
 			cs.phaseStart = time.Now()
 		}
