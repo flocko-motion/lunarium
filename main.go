@@ -7,6 +7,7 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
+	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/text"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
@@ -28,7 +29,6 @@ var (
 	letters                   []*LetterSprite
 	victories                 []*VictorySprite
 	escPressStart             time.Time
-	escHeld                   bool
 	mousePointer              *MousePointer
 	challenge                 *ChallengeSprite
 	state                     gameState
@@ -96,20 +96,28 @@ func (g *Game) Update() error {
 }
 
 func (g *Game) exitHandler() error {
-	if ebiten.IsKeyPressed(ebiten.KeyEscape) {
-		if !escHeld {
-			escHeld = true
-			escPressStart = time.Now()
-
-			// Single press enters fullscreen
-			if !ebiten.IsFullscreen() {
-				ebiten.SetFullscreen(true)
-			}
-		} else if ebiten.IsFullscreen() && time.Since(escPressStart) > 3*time.Second {
-			return fmt.Errorf("exit")
+	// Fresh ESC press: toggle to fullscreen and start the hold timer.
+	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+		escPressStart = time.Now()
+		if !ebiten.IsFullscreen() {
+			ebiten.SetFullscreen(true)
 		}
-	} else {
-		escHeld = false
+	}
+	// On ESC release, reset the timer so a stuck "pressed" state can't accumulate.
+	// (macOS may swallow the ESC release event during fullscreen entry, so we
+	// rely on inpututil.KeyPressDuration which counts ticks the key has been
+	// continuously held — not a wall-clock delta from a possibly-stale press.)
+	if !ebiten.IsKeyPressed(ebiten.KeyEscape) {
+		escPressStart = time.Time{}
+		return nil
+	}
+	if !ebiten.IsFullscreen() || escPressStart.IsZero() {
+		return nil
+	}
+	heldTicks := inpututil.KeyPressDuration(ebiten.KeyEscape)
+	heldSeconds := float64(heldTicks) / float64(ebiten.TPS())
+	if heldSeconds > 3 && time.Since(escPressStart) > 3*time.Second {
+		return fmt.Errorf("exit")
 	}
 	return nil
 }
@@ -202,9 +210,12 @@ func (g *Game) drawMenu(screen *ebiten.Image) {
 	text.Draw(screen, opt2, menuFace, screenWidth/2-opt2W/2, screenHeight/2+60, gray)
 }
 
+// version is stamped at build time via -ldflags "-X main.version=...".
+var version = "dev"
+
 func main() {
 	ebiten.SetWindowSize(1024, 768)
-	ebiten.SetWindowTitle("Lunarium")
+	ebiten.SetWindowTitle("Lunarium " + version)
 	ebiten.SetCursorMode(ebiten.CursorModeHidden)
 
 	game := &Game{}

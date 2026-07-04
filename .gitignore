@@ -1,3 +1,9 @@
 /bin/
 lunarium
 __debug*
+
+# sindri hub artifacts (agent worktrees + hub state) — not for the repo
+.worktrees/
+
+# local agent / editor config
+.claude/

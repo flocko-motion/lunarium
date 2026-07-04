@@ -14,7 +14,7 @@ import (
 	"golang.org/x/image/font/opentype"
 )
 
-//go:embed assets/DejaVuSans-Bold.ttf
+//go:embed assets/NotoSans-Bold.ttf
 var fontData []byte
 
 var letterFace font.Face
