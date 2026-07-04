@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
-# Cut a release from the default branch as a self-contained cycle: ensure the
-# tree is clean; (if on a feature branch) push it, open + merge a PR into the
-# default branch so the tag points at MERGED code; tag the merged tip; push the
-# tag (which triggers the release workflow); then return to the branch you
-# started on. It never leaves you on — or commits directly to — the default
-# branch: you can't push to main, you only release from it.
+# Cut a release as a self-contained cycle: ensure the tree is clean; (if on a
+# feature branch) rebase it onto the default branch, push it, open + merge a PR
+# so the tag points at MERGED code, then re-sync local refs to the merged tip so
+# nothing is left diverged; tag the merged tip; push the tag (which triggers the
+# release workflow); then return to the branch you started on. It never leaves
+# you on — or commits directly to — the default branch: you release from it.
+#
+# Single-maintainer repo, so the feature branch is force-pushed (--force-with-
+# lease) after the rebase. Don't run this on a branch already merged to default.
 #
 # Usage: make release <major|minor|patch>   (aliases: breaking|feature|fix)
 #   Needs `gh` when run from a feature branch.
@@ -43,15 +46,40 @@ if [ "$start" != "$default" ]; then
 		echo "on '$start' — releasing needs it merged to '$default'. Install gh (https://cli.github.com) or merge manually, then re-run." >&2
 		exit 1
 	fi
+	git fetch origin "$default" >/dev/null 2>&1 || true
+
+	# Rebase onto the latest default branch first, so the PR is a clean forward
+	# step: it can only add commits, never revert what's already on "$default".
+	if git rev-parse --verify --quiet "origin/$default" >/dev/null \
+		&& ! git merge-base --is-ancestor "origin/$default" HEAD; then
+		echo "rebasing '$start' onto '$default'…"
+		git rebase "origin/$default" || {
+			git rebase --abort 2>/dev/null || true
+			echo "rebase onto '$default' hit conflicts — resolve them, commit, then re-run." >&2
+			exit 1
+		}
+	fi
+
+	# Push the branch. --force-with-lease so a rebase (rewritten history) still
+	# updates the remote branch; safe here because this is a single-maintainer
+	# repo, and --lease still refuses if the remote moved unexpectedly.
 	echo "pushing '$start' and merging it into '$default'…"
-	git push -u origin "$start"
+	git push --force-with-lease -u origin "$start"
+
 	if [ -z "$(gh pr list --head "$start" --state open --json number --jq '.[0].number' 2>/dev/null)" ]; then
 		echo "opening a pull request…"
 		gh pr create --base "$default" --head "$start" --fill
 	fi
 	echo "merging the pull request…"
 	gh pr merge "$start" --merge
+
+	# The classic post-merge sync: the merge happened on the REMOTE, so our local
+	# refs are now behind. Fast-forward local "$default" and this branch to the
+	# merged tip, leaving the checkout current instead of silently diverged.
 	git fetch origin "$default" >/dev/null 2>&1
+	git branch --force "$default" "origin/$default"
+	git merge --ff-only "origin/$default" >/dev/null 2>&1 \
+		|| echo "note: left '$start' as-is (couldn't fast-forward it to '$default')."
 	target="origin/$default"
 else
 	# Already on the default branch: require sync with origin so the tag points at
