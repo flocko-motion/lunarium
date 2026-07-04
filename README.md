@@ -87,35 +87,6 @@ sudo dnf install mesa-libGL-devel libXcursor-devel libXi-devel \
 
 macOS and Windows need no extra system packages.
 
-## Releasing (maintainers)
-
-Releases are built automatically by [`.github/workflows/release.yml`](.github/workflows/release.yml)
-when a version tag is pushed. Cut one with the `Makefile` target, passing the
-bump level:
-
-```sh
-make release patch   # backwards-compatible fix     v1.2.3 -> v1.2.4  (alias: fix)
-make release minor   # backwards-compatible feature  v1.2.3 -> v1.3.0  (alias: feature)
-make release major   # incompatible change           v1.2.3 -> v2.0.0  (alias: breaking)
-```
-
-The normal path is to release **from a feature branch** (requires the
-authenticated [GitHub CLI](https://cli.github.com), `gh`). `make release`:
-
-1. checks the working tree is clean (nothing uncommitted);
-2. pushes the branch, opens a PR into the default branch (if one isn't open
-   already) and merges it — so the tag points at *merged* code;
-3. bumps from the latest release tag, tags the merged tip, and pushes the tag
-   (this fires the build);
-4. returns you to the branch you started on — it never leaves you on, or
-   commits directly to, the default branch.
-
-You can also run it while on the default branch itself, as long as your local
-branch is in sync with `origin`; it then tags `HEAD` directly (no PR).
-
-GitHub Actions then builds all three platforms and publishes a Release with the
-binaries attached.
-
 ## Licensing
 
 This project is licensed in three parts:
