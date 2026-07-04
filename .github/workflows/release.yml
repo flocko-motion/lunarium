@@ -1,0 +1,115 @@
+name: release
+
+# Fires when you push a version tag (created by `make release`).
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-amd64
+            os: ubuntu-latest
+          - name: windows-amd64
+            os: windows-latest
+          - name: macos-universal
+            os: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Ebiten needs OpenGL/X11 dev headers to build (cgo) on Linux.
+      - name: Install Linux build deps
+        if: matrix.name == 'linux-amd64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc pkg-config \
+            libgl1-mesa-dev libglu1-mesa-dev libxxf86vm-dev \
+            libxcursor-dev libxi-dev libxinerama-dev libxrandr-dev \
+            libasound2-dev
+
+      - name: Build (Linux)
+        if: matrix.name == 'linux-amd64'
+        shell: bash
+        run: |
+          CGO_ENABLED=1 go build -ldflags "-X main.version=${GITHUB_REF_NAME}" -o lunarium .
+          mkdir -p dist
+          tar -czf dist/lunarium-linux-amd64.tar.gz lunarium
+
+      # Windows is pure Go (no cgo). -H=windowsgui suppresses the console window.
+      - name: Build (Windows)
+        if: matrix.name == 'windows-amd64'
+        shell: pwsh
+        run: |
+          $env:CGO_ENABLED = "0"
+          go build -ldflags "-H=windowsgui -X main.version=$env:GITHUB_REF_NAME" -o lunarium.exe .
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive -Path lunarium.exe -DestinationPath dist/lunarium-windows-amd64.zip
+
+      # macOS: build both arches (cgo), fuse into one universal binary with lipo.
+      - name: Build (macOS universal)
+        if: matrix.name == 'macos-universal'
+        shell: bash
+        run: |
+          LDFLAGS="-X main.version=${GITHUB_REF_NAME}"
+          CGO_ENABLED=1 GOARCH=arm64 go build -ldflags "$LDFLAGS" -o lunarium-arm64 .
+          CGO_ENABLED=1 GOARCH=amd64 go build -ldflags "$LDFLAGS" -o lunarium-amd64 .
+          lipo -create -output lunarium lunarium-arm64 lunarium-amd64
+          lipo -info lunarium
+          mkdir -p dist
+          zip -j dist/lunarium-macos-universal.zip lunarium
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true
+          body: |
+            ## Lunarium ${{ github.ref_name }}
+
+            Downloads below — the game is fully self-contained (assets are embedded).
+
+            | Platform | File |
+            |----------|------|
+            | Linux (x86-64) | `lunarium-linux-amd64.tar.gz` |
+            | Windows (x86-64) | `lunarium-windows-amd64.zip` |
+            | macOS (Intel + Apple Silicon) | `lunarium-macos-universal.zip` |
+
+            ### macOS: first launch
+            The binary is unsigned (no paid Apple Developer account), so macOS
+            quarantines it after download. Unzip, then run once in Terminal:
+
+            ```sh
+            xattr -d com.apple.quarantine ./lunarium
+            ./lunarium
+            ```

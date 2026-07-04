@@ -1,11 +1,12 @@
 package main
 
 import (
+	"embed"
 	"image"
 	"image/color"
 	_ "image/png"
+	"io/fs"
 	"math/rand"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -15,6 +16,12 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/text"
 	"golang.org/x/image/font"
 )
+
+// abcimgFS embeds the challenge images so the binary is fully self-contained
+// (no dependency on the working directory at runtime).
+//
+//go:embed assets/abcimg/*.png
+var abcimgFS embed.FS
 
 const (
 	challengeMinWidth  = 200
@@ -54,7 +61,7 @@ type ChallengeSprite struct {
 }
 
 func NewChallengeSprite(assetDir string, allowedLetters string) *ChallengeSprite {
-	matches, err := filepath.Glob(filepath.Join(assetDir, "*.png"))
+	matches, err := fs.Glob(abcimgFS, assetDir+"/*.png")
 	if err != nil || len(matches) == 0 {
 		panic("no challenge images found in " + assetDir)
 	}
@@ -138,7 +145,7 @@ func (cs *ChallengeSprite) loadNextImage(banX, banY, banW, banH float64) {
 		cs.letter = unicode.ToUpper(rune(words[0][0]))
 	}
 
-	f, err := os.Open(path)
+	f, err := abcimgFS.Open(path)
 	if err != nil {
 		panic(err)
 	}
