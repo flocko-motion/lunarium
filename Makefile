@@ -43,7 +43,7 @@ VERSION_STAMP := $(shell git describe --tags --dirty --always 2>/dev/null || ech
 LDFLAGS       := -X main.version=$(VERSION_STAMP)
 
 .DEFAULT_GOAL := build
-.PHONY: build run install uninstall app install-app clean tidy deps release major minor patch breaking feature fix
+.PHONY: build run install uninstall app bundle install-app clean tidy deps release major minor patch breaking feature fix
 
 build:
 	@go build -ldflags "$(LDFLAGS)" -o $(BINARY) . || { \
@@ -79,12 +79,18 @@ uninstall:
 	$$sudo rm -f "$(BINDIR)/$(BINARY)" && \
 	echo ">> removed $(BINDIR)/$(BINARY)"
 
-# Bundle a double-clickable macOS app with a Dock/Finder icon. macOS-only:
-# sips + iconutil ship with the OS. The .icns is generated from $(ICON_SRC)
-# (512px source is upscaled to fill the 1024px @2x slot).
+# Build for the host, then wrap the binary in a double-clickable macOS app.
 app: build
+	@$(MAKE) bundle
+
+# Assemble bin/Lunarium.app around an EXISTING $(BINARY) (does not rebuild), so
+# release CI can wrap the universal binary from lipo. macOS-only: sips + iconutil
+# ship with the OS. The .icns is generated from $(ICON_SRC) (the 512px source is
+# upscaled to fill the 1024px @2x slot).
+bundle:
 	@command -v iconutil >/dev/null 2>&1 && command -v sips >/dev/null 2>&1 || { \
-		echo ">> make app is macOS-only (needs sips + iconutil)"; exit 1; }
+		echo ">> bundling is macOS-only (needs sips + iconutil)"; exit 1; }
+	@test -f $(BINARY) || { echo ">> no ./$(BINARY) to bundle — run make build first"; exit 1; }
 	@rm -rf $(APPDIR)
 	@mkdir -p $(APPDIR)/Contents/MacOS $(APPDIR)/Contents/Resources
 	@iconset="$$(mktemp -d)/$(BINARY).iconset"; mkdir -p "$$iconset"; \
