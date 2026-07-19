@@ -2,6 +2,8 @@
 #
 #   make            # build ./lunarium for the host OS (default)
 #   make run        # build and run
+#   make install    # build, then copy the binary to $(PREFIX)/bin (default /usr/local)
+#   make uninstall  # remove the installed binary
 #   make deps       # install Ebiten's Linux build headers (Debian/Fedora)
 #   make clean
 #   make tidy       # go mod tidy
@@ -20,13 +22,17 @@
 
 BINARY := lunarium
 
+# Install location. Override with `make install PREFIX=~/.local`.
+PREFIX ?= /usr/local
+BINDIR := $(PREFIX)/bin
+
 # Stamped into the binary via -ldflags (kept simple: no nested parens, so it
 # parses on every make version). Falls back to "dev" outside a git checkout.
 VERSION_STAMP := $(shell git describe --tags --dirty --always 2>/dev/null || echo dev)
 LDFLAGS       := -X main.version=$(VERSION_STAMP)
 
 .DEFAULT_GOAL := build
-.PHONY: build run clean tidy deps release major minor patch breaking feature fix
+.PHONY: build run install uninstall clean tidy deps release major minor patch breaking feature fix
 
 build:
 	@go build -ldflags "$(LDFLAGS)" -o $(BINARY) . || { \
@@ -37,6 +43,30 @@ build:
 
 run:
 	go run -ldflags "$(LDFLAGS)" .
+
+# Build, then copy the binary onto $PATH. Assets are embedded, so the single
+# binary is fully self-contained. Uses sudo only when the target isn't writable
+# (e.g. the default /usr/local/bin); for a no-sudo install use PREFIX=~/.local.
+# Writability is judged against the nearest existing ancestor of $(BINDIR), so a
+# not-yet-created dir under a writable parent doesn't needlessly demand sudo.
+install: build
+	@sudo=""; \
+	d="$(BINDIR)"; while [ ! -e "$$d" ] && [ "$$d" != "/" ] && [ "$$d" != "." ]; do d=$$(dirname "$$d"); done; \
+	if [ ! -w "$$d" ] && [ "$$(id -u)" != 0 ]; then \
+		if command -v sudo >/dev/null 2>&1; then sudo="sudo"; \
+		else echo "Can't write to $(BINDIR) and 'sudo' is unavailable — retry with PREFIX=~/.local"; exit 1; fi; \
+	fi; \
+	$$sudo mkdir -p "$(BINDIR)" && \
+	$$sudo install -m 0755 $(BINARY) "$(BINDIR)/$(BINARY)" && \
+	echo ">> installed $(BINARY) to $(BINDIR)/$(BINARY)"
+
+uninstall:
+	@sudo=""; \
+	if [ -e "$(BINDIR)/$(BINARY)" ] && [ ! -w "$(BINDIR)" ] && [ "$$(id -u)" != 0 ]; then \
+		if command -v sudo >/dev/null 2>&1; then sudo="sudo"; fi; \
+	fi; \
+	$$sudo rm -f "$(BINDIR)/$(BINARY)" && \
+	echo ">> removed $(BINDIR)/$(BINARY)"
 
 clean:
 	rm -rf bin/ $(BINARY) $(BINARY).exe
