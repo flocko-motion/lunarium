@@ -60,7 +60,8 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           Compress-Archive -Path lunarium.exe -DestinationPath dist/lunarium-windows-amd64.zip
 
-      # macOS: build both arches (cgo), fuse into one universal binary with lipo.
+      # macOS: build both arches (cgo), fuse into one universal binary with lipo,
+      # then wrap it in Lunarium.app so the download carries a Dock/Finder icon.
       - name: Build (macOS universal)
         if: matrix.name == 'macos-universal'
         shell: bash
@@ -70,8 +71,12 @@ jobs:
           CGO_ENABLED=1 GOARCH=amd64 go build -ldflags "$LDFLAGS" -o lunarium-amd64 .
           lipo -create -output lunarium lunarium-arm64 lunarium-amd64
           lipo -info lunarium
+          # Bundle the universal binary into bin/Lunarium.app (icon + Info.plist).
+          make bundle
+          lipo -info bin/Lunarium.app/Contents/MacOS/lunarium
           mkdir -p dist
-          zip -j dist/lunarium-macos-universal.zip lunarium
+          # ditto (not zip) preserves the .app bundle structure and metadata.
+          ditto -c -k --keepParent bin/Lunarium.app dist/lunarium-macos-universal.zip
 
       - uses: actions/upload-artifact@v4
         with:
@@ -103,13 +108,15 @@ jobs:
             |----------|------|
             | Linux (x86-64) | `lunarium-linux-amd64.tar.gz` |
             | Windows (x86-64) | `lunarium-windows-amd64.zip` |
-            | macOS (Intel + Apple Silicon) | `lunarium-macos-universal.zip` |
+            | macOS (Intel + Apple Silicon) | `lunarium-macos-universal.zip` (`Lunarium.app`) |
 
             ### macOS: first launch
-            The binary is unsigned (no paid Apple Developer account), so macOS
-            quarantines it after download. Unzip, then run once in Terminal:
+            The macOS download is `Lunarium.app` (with an icon). The app is
+            unsigned (no paid Apple Developer account), so Gatekeeper quarantines
+            it after download. Unzip, move `Lunarium.app` to Applications, then
+            clear the quarantine flag once in Terminal:
 
             ```sh
-            xattr -d com.apple.quarantine ./lunarium
-            ./lunarium
+            xattr -dr com.apple.quarantine /Applications/Lunarium.app
+            open /Applications/Lunarium.app
             ```

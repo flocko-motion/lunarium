@@ -7,3 +7,6 @@ __debug*
 
 # local agent / editor config
 .claude/
+
+# sindri hub artifacts (agent worktrees + hub state) — not for the repo
+.todos/

@@ -29,6 +29,7 @@ var (
 	letters                   []*LetterSprite
 	victories                 []*VictorySprite
 	escPressStart             time.Time
+	escArmed                  bool
 	mousePointer              *MousePointer
 	challenge                 *ChallengeSprite
 	state                     gameState
@@ -96,27 +97,35 @@ func (g *Game) Update() error {
 }
 
 func (g *Game) exitHandler() error {
-	// Fresh ESC press: toggle to fullscreen and start the hold timer.
+	// Fresh ESC press.
 	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
-		escPressStart = time.Now()
 		if !ebiten.IsFullscreen() {
+			// First press enters fullscreen. Do NOT arm the quit timer here:
+			// on macOS the matching ESC key-up is swallowed by the fullscreen
+			// transition, leaving Ebiten's key state stuck at "pressed". If we
+			// started counting now, the game would quit itself ~3s later even
+			// though the user let go of ESC. We wait for a real release first.
 			ebiten.SetFullscreen(true)
+			escArmed = false
+		} else if escArmed {
+			// A genuine fresh press while already fullscreen: begin hold-to-quit.
+			escPressStart = time.Now()
 		}
 	}
-	// On ESC release, reset the timer so a stuck "pressed" state can't accumulate.
-	// (macOS may swallow the ESC release event during fullscreen entry, so we
-	// rely on inpututil.KeyPressDuration which counts ticks the key has been
-	// continuously held — not a wall-clock delta from a possibly-stale press.)
+
+	// Once we actually observe ESC released, arm the quit gesture and clear any
+	// pending timer. Until this happens (i.e. while the key state is stuck from
+	// the fullscreen transition), no hold can accumulate.
 	if !ebiten.IsKeyPressed(ebiten.KeyEscape) {
+		escArmed = true
 		escPressStart = time.Time{}
 		return nil
 	}
+
 	if !ebiten.IsFullscreen() || escPressStart.IsZero() {
 		return nil
 	}
-	heldTicks := inpututil.KeyPressDuration(ebiten.KeyEscape)
-	heldSeconds := float64(heldTicks) / float64(ebiten.TPS())
-	if heldSeconds > 3 && time.Since(escPressStart) > 3*time.Second {
+	if time.Since(escPressStart) > 3*time.Second {
 		return fmt.Errorf("exit")
 	}
 	return nil
