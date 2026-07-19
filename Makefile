@@ -4,6 +4,8 @@
 #   make run        # build and run
 #   make install    # build, then copy the binary to $(PREFIX)/bin (default /usr/local)
 #   make uninstall  # remove the installed binary
+#   make app        # macOS: bundle bin/Lunarium.app (with icon) — needs sips/iconutil
+#   make install-app # macOS: build the bundle and copy it to /Applications
 #   make deps       # install Ebiten's Linux build headers (Debian/Fedora)
 #   make clean
 #   make tidy       # go mod tidy
@@ -26,13 +28,22 @@ BINARY := lunarium
 PREFIX ?= /usr/local
 BINDIR := $(PREFIX)/bin
 
+# macOS .app bundle settings.
+APP        := Lunarium.app
+APPDIR     := bin/$(APP)
+ICON_SRC   := assets/cat/head.png
+BUNDLE_ID  := com.flocko-motion.lunarium
+# CFBundle version strings can't carry git's "v"/"-dirty" cruft; strip to a bare
+# number-ish string, falling back to 0 outside a tagged checkout.
+APP_VERSION := $(patsubst v%,%,$(firstword $(subst -, ,$(VERSION_STAMP))))
+
 # Stamped into the binary via -ldflags (kept simple: no nested parens, so it
 # parses on every make version). Falls back to "dev" outside a git checkout.
 VERSION_STAMP := $(shell git describe --tags --dirty --always 2>/dev/null || echo dev)
 LDFLAGS       := -X main.version=$(VERSION_STAMP)
 
 .DEFAULT_GOAL := build
-.PHONY: build run install uninstall clean tidy deps release major minor patch breaking feature fix
+.PHONY: build run install uninstall app install-app clean tidy deps release major minor patch breaking feature fix
 
 build:
 	@go build -ldflags "$(LDFLAGS)" -o $(BINARY) . || { \
@@ -67,6 +78,48 @@ uninstall:
 	fi; \
 	$$sudo rm -f "$(BINDIR)/$(BINARY)" && \
 	echo ">> removed $(BINDIR)/$(BINARY)"
+
+# Bundle a double-clickable macOS app with a Dock/Finder icon. macOS-only:
+# sips + iconutil ship with the OS. The .icns is generated from $(ICON_SRC)
+# (512px source is upscaled to fill the 1024px @2x slot).
+app: build
+	@command -v iconutil >/dev/null 2>&1 && command -v sips >/dev/null 2>&1 || { \
+		echo ">> make app is macOS-only (needs sips + iconutil)"; exit 1; }
+	@rm -rf $(APPDIR)
+	@mkdir -p $(APPDIR)/Contents/MacOS $(APPDIR)/Contents/Resources
+	@iconset="$$(mktemp -d)/$(BINARY).iconset"; mkdir -p "$$iconset"; \
+	for s in 16 32 128 256 512; do \
+		sips -z $$s $$s $(ICON_SRC) --out "$$iconset/icon_$${s}x$${s}.png" >/dev/null; \
+		d=$$((s * 2)); \
+		sips -z $$d $$d $(ICON_SRC) --out "$$iconset/icon_$${s}x$${s}@2x.png" >/dev/null; \
+	done; \
+	iconutil -c icns "$$iconset" -o $(APPDIR)/Contents/Resources/$(BINARY).icns; \
+	rm -rf "$$(dirname "$$iconset")"
+	@cp $(BINARY) $(APPDIR)/Contents/MacOS/$(BINARY)
+	@printf '%s\n' \
+		'<?xml version="1.0" encoding="UTF-8"?>' \
+		'<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+		'<plist version="1.0">' \
+		'<dict>' \
+		'  <key>CFBundleName</key><string>Lunarium</string>' \
+		'  <key>CFBundleDisplayName</key><string>Lunarium</string>' \
+		'  <key>CFBundleIdentifier</key><string>$(BUNDLE_ID)</string>' \
+		'  <key>CFBundleExecutable</key><string>$(BINARY)</string>' \
+		'  <key>CFBundleIconFile</key><string>$(BINARY)</string>' \
+		'  <key>CFBundlePackageType</key><string>APPL</string>' \
+		'  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>' \
+		'  <key>CFBundleShortVersionString</key><string>$(APP_VERSION)</string>' \
+		'  <key>CFBundleVersion</key><string>$(APP_VERSION)</string>' \
+		'  <key>NSHighResolutionCapable</key><true/>' \
+		'  <key>LSApplicationCategoryType</key><string>public.app-category.education</string>' \
+		'</dict>' \
+		'</plist>' > $(APPDIR)/Contents/Info.plist
+	@echo ">> built $(APPDIR)"
+
+# Build the bundle and drop it into /Applications.
+install-app: app
+	@rm -rf "/Applications/$(APP)" && cp -R $(APPDIR) /Applications/ && \
+	echo ">> installed /Applications/$(APP)"
 
 clean:
 	rm -rf bin/ $(BINARY) $(BINARY).exe
